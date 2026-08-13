@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import Link from "next/link";
 import { getAdminEmail } from "@/lib/supabaseServer";
 import LogoutButton from "./LogoutButton";
@@ -8,7 +9,18 @@ export default async function AdminLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const path = headers().get("x-current-path") || "";
+  const isLoginPage = path.startsWith("/admin/login");
+
   const email = await getAdminEmail();
+
+  // Login page: no guard, no admin chrome.
+  if (isLoginPage) {
+    if (email) redirect("/admin"); // already logged in → go to dashboard
+    return <>{children}</>;
+  }
+
+  // Every other admin page requires an admin session.
   if (!email) {
     redirect("/admin/login");
   }
