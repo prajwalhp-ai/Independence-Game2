@@ -12,15 +12,13 @@ export default async function AdminLayout({
   const path = headers().get("x-current-path") || "";
   const isLoginPage = path.startsWith("/admin/login");
 
-  const email = await getAdminEmail();
-
-  // Login page: no guard, no admin chrome.
+  // Login page: render as-is, no guard, no redirect (prevents loops).
   if (isLoginPage) {
-    if (email) redirect("/admin"); // already logged in → go to dashboard
     return <>{children}</>;
   }
 
   // Every other admin page requires an admin session.
+  const email = await getAdminEmail();
   if (!email) {
     redirect("/admin/login");
   }
