@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabaseClient";
+import GameBoard from "@/components/GameBoard";
 
 type City = { id: string; name: string; slug: string; status: string };
 type Session = { teamId: string; token: string; teamName: string; empName: string };
@@ -22,9 +23,8 @@ export default function PlayEntry({ city }: { city: City }) {
   const [empCode, setEmpCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [ready, setReady] = useState(false); // finished reading localStorage
+  const [ready, setReady] = useState(false);
 
-  // restore a previous session on refresh
   useEffect(() => {
     try {
       const raw = localStorage.getItem(storageKey);
@@ -35,7 +35,6 @@ export default function PlayEntry({ city }: { city: City }) {
     setReady(true);
   }, [storageKey]);
 
-  // live-listen for city status changes (Start / Stop / Reset)
   useEffect(() => {
     const channel = supabase
       .channel(`city-${city.id}`)
@@ -48,7 +47,6 @@ export default function PlayEntry({ city }: { city: City }) {
       )
       .subscribe();
 
-    // safety poll in case realtime is delayed
     const poll = setInterval(async () => {
       const { data } = await supabase
         .from("cities")
@@ -99,7 +97,6 @@ export default function PlayEntry({ city }: { city: City }) {
     setSession(s);
   }
 
-  // ---------- RENDER ----------
   const bg = {
     backgroundImage: "url('/background.png')",
     backgroundSize: "cover",
@@ -110,31 +107,9 @@ export default function PlayEntry({ city }: { city: City }) {
     return <div style={bg} className="min-h-screen" />;
   }
 
-  // Game already running/started state → placeholder for now (game board next file)
-  if (session && status === "running") {
-    return (
-      <div style={bg} className="min-h-screen flex items-center justify-center">
-        <div className="bg-white/90 backdrop-blur rounded-2xl px-8 py-6 text-center">
-          <p className="text-lg font-semibold text-slate-800">The game is starting…</p>
-          <p className="text-sm text-slate-500 mt-1">Team: {session.teamName}</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Registered, game ended
-  if (session && status === "stopped") {
-    return (
-      <div style={bg} className="min-h-screen flex items-center justify-center">
-        <div className="bg-white/90 backdrop-blur rounded-2xl px-8 py-6 text-center max-w-sm">
-          <div className="text-3xl">🎉</div>
-          <p className="text-lg font-semibold text-slate-800 mt-2">Your answers are submitted!</p>
-          <p className="text-sm text-slate-500 mt-1">
-            Thanks for playing, Team {session.teamName}. Check the big screen for results.
-          </p>
-        </div>
-      </div>
-    );
+  // Playing (or finished) → hand off to the game board
+  if (session && (status === "running" || status === "stopped")) {
+    return <GameBoard city={city} session={session} status={status} />;
   }
 
   // Registered, waiting for HR
@@ -154,7 +129,7 @@ export default function PlayEntry({ city }: { city: City }) {
     );
   }
 
-  // Not registered, but game already ended
+  // Not registered, game already ended
   if (!session && status === "stopped") {
     return (
       <div style={bg} className="min-h-screen flex items-center justify-center">
@@ -170,10 +145,10 @@ export default function PlayEntry({ city }: { city: City }) {
     <div style={bg} className="min-h-screen flex items-center justify-end px-6 sm:px-16">
       <div className="w-full max-w-sm bg-white/90 backdrop-blur rounded-2xl shadow-xl p-8">
         <img src="/logo.webp" alt="Orange Health" className="h-8 mx-auto mb-5 object-contain" />
-        <h1 className="text-xl font-bold text-center text-slate-900">
-          Match the States 🇮🇳
-        </h1>
-        <p className="text-center text-xs text-slate-500 mt-1">{city.name} · Independence Day Game</p>
+        <h1 className="text-xl font-bold text-center text-slate-900">Match the States 🇮🇳</h1>
+        <p className="text-center text-xs text-slate-500 mt-1">
+          {city.name} · Independence Day Game
+        </p>
 
         <div className="mt-6 space-y-3">
           <div>
