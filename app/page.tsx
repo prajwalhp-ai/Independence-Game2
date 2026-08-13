@@ -9,7 +9,11 @@ export default function HomePage() {
           alt="Orange Health Labs"
           className="h-14 mx-auto mb-8 object-contain"
         />
-        <div className="inline-block mb-4 text-4xl">🇮🇳</div>
+        <div className="inline-flex mb-4 rounded overflow-hidden shadow-sm">
+          <span className="w-8 h-5 bg-saffron" />
+          <span className="w-8 h-5 bg-white border-y border-slate-200" />
+          <span className="w-8 h-5 bg-indiagreen" />
+        </div>
         <h1 className="text-3xl sm:text-4xl font-bold text-slate-900">
           Independence Day Game
         </h1>
