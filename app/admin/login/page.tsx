@@ -1,11 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
 
 export default function AdminLoginPage() {
-  const router = useRouter();
   const supabase = createClient();
 
   const [email, setEmail] = useState("");
@@ -34,7 +32,7 @@ export default function AdminLoginPage() {
         return;
       }
 
-      // Step 2: sign in
+      // Step 2: sign in (this writes the session cookie)
       const { error: signErr } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -49,8 +47,8 @@ export default function AdminLoginPage() {
         return;
       }
 
-      router.push("/admin");
-      router.refresh();
+      // Step 3: hard navigation so the server reads the fresh cookie
+      window.location.href = "/admin";
     } catch {
       setError("Something went wrong. Please try again.");
       setLoading(false);
