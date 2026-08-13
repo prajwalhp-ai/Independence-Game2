@@ -25,7 +25,6 @@ type ParsedRow = {
 };
 
 function normalizeRow(obj: Record<string, string>): ParsedRow | null {
-  // accept flexible header names / casing
   const lower: Record<string, string> = {};
   for (const k of Object.keys(obj)) lower[k.trim().toLowerCase()] = obj[k];
   const empcode = lower["empcode"] || lower["emp code"] || lower["code"] || "";
@@ -58,8 +57,12 @@ export default function EmployeeManager({
     [employees, cityId]
   );
 
+  const selectedCityName = useMemo(
+    () => cities.find((c) => c.id === cityId)?.name ?? "",
+    [cities, cityId]
+  );
+
   function parsePaste(text: string): ParsedRow[] {
-    // supports comma OR tab separated (paste from Excel = tabs)
     const parsed = Papa.parse<Record<string, string>>(text.trim(), {
       header: true,
       skipEmptyLines: true,
@@ -113,6 +116,31 @@ export default function EmployeeManager({
     e.target.value = "";
   }
 
+  function downloadTemplate() {
+    const header = ["empcode", "name", "email", "department", "location"];
+    const sample = [
+      ["E101", "Asha Rao", "asha@orangehealth.in", "Operations", selectedCityName || "Bengaluru"],
+      ["E102", "Ravi Kumar", "ravi@orangehealth.in", "Sales", selectedCityName || "Bengaluru"],
+    ];
+    const csv = [header, ...sample]
+      .map((row) =>
+        row
+          .map((v) => {
+            const s = String(v).replace(/"/g, '""');
+            return /[",\n]/.test(s) ? `"${s}"` : s;
+          })
+          .join(",")
+      )
+      .join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "employee-template.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   function remove(id: string) {
     startTransition(async () => {
       await deleteEmployee(id);
@@ -160,12 +188,20 @@ export default function EmployeeManager({
 
       {/* upload / paste */}
       <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
-        <div>
-          <h2 className="font-semibold text-slate-800">Add employees</h2>
-          <p className="text-xs text-slate-500 mt-1">
-            Columns: <code>empcode, name, email, department, location</code> — empcode and name are
-            required. Re-uploading an empcode updates that person.
-          </p>
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <h2 className="font-semibold text-slate-800">Add employees</h2>
+            <p className="text-xs text-slate-500 mt-1">
+              Columns: <code>empcode, name, email, department, location</code> — empcode and name are
+              required. Re-uploading an empcode updates that person.
+            </p>
+          </div>
+          <button
+            onClick={downloadTemplate}
+            className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700 hover:bg-slate-100 transition whitespace-nowrap"
+          >
+            ⬇ Download template
+          </button>
         </div>
 
         <div>
