@@ -145,7 +145,7 @@ export default function PlayEntry({ city }: { city: City }) {
     <div style={bg} className="min-h-screen flex items-center justify-end px-6 sm:px-16">
       <div className="w-full max-w-sm bg-white/90 backdrop-blur rounded-2xl shadow-xl p-8">
         <img src="/logo.webp" alt="Orange Health" className="h-8 mx-auto mb-5 object-contain" />
-        <h1 className="text-xl font-bold text-center text-slate-900">Match the States 🇮🇳</h1>
+        <h1 className="text-xl font-bold text-center text-slate-900">Match the States</h1>
         <p className="text-center text-xs text-slate-500 mt-1">
           {city.name} · Independence Day Game
         </p>
