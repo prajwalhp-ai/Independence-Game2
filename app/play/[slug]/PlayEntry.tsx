@@ -99,8 +99,10 @@ export default function PlayEntry({ city }: { city: City }) {
 
   const bg = {
     backgroundImage: "url('/background.png')",
-    backgroundSize: "cover",
-    backgroundPosition: "center",
+    backgroundSize: "contain",
+    backgroundPosition: "left center",
+    backgroundRepeat: "no-repeat",
+    backgroundColor: "#1a1a1a",
   } as const;
 
   if (!ready) {
