@@ -2,8 +2,6 @@
 
 import { useEffect, useId, useMemo, useState } from "react";
 
-// Normalize state names so "Andaman & Nicobar Islands" (answers)
-// matches "Andaman and Nicobar Islands" (map data).
 export function normState(s: string): string {
   return String(s || "")
     .replace(/&/g, "and")
@@ -23,9 +21,9 @@ type Feature = {
 type FeatureCollection = { type: "FeatureCollection"; features: Feature[] };
 
 type StateGeom = {
-  name: string;      // original map name
-  key: string;       // normalized
-  d: string;         // svg path
+  name: string;
+  key: string;
+  d: string;
   bbox: { x: number; y: number; w: number; h: number };
   labelX: number;
   labelY: number;
@@ -37,7 +35,6 @@ const TARGET_H = 920;
 const PAD = 20;
 
 function buildGeom(geo: FeatureCollection): { states: StateGeom[]; vbW: number; vbH: number } {
-  // midpoint latitude for a simple aspect-correct projection
   let latSum = 0,
     latN = 0,
     minLng = Infinity,
@@ -64,8 +61,7 @@ function buildGeom(geo: FeatureCollection): { states: StateGeom[]; vbW: number; 
   );
 
   const midLat = (latSum / Math.max(latN, 1)) * (Math.PI / 180);
-  const kx = Math.cos(midLat); // horizontal squeeze so shapes aren't stretched
-
+  const kx = Math.cos(midLat);
   const projX = (lng: number) => lng * kx;
   const pxMin = projX(minLng);
   const pxMax = projX(maxLng);
@@ -76,7 +72,7 @@ function buildGeom(geo: FeatureCollection): { states: StateGeom[]; vbW: number; 
 
   const toXY = (lng: number, lat: number): [number, number] => {
     const x = PAD + (projX(lng) - pxMin) * scale;
-    const y = PAD + (maxLat - lat) * scale; // flip Y for screen
+    const y = PAD + (maxLat - lat) * scale;
     return [x, y];
   };
 
@@ -86,8 +82,6 @@ function buildGeom(geo: FeatureCollection): { states: StateGeom[]; vbW: number; 
       miny = Infinity,
       maxx = -Infinity,
       maxy = -Infinity;
-
-    // track the largest ring to place the label
     let bestRing: [number, number][] = [];
     let bestLen = -1;
 
@@ -110,7 +104,6 @@ function buildGeom(geo: FeatureCollection): { states: StateGeom[]; vbW: number; 
     if (f.geometry.type === "Polygon") f.geometry.coordinates.forEach(addRing);
     else f.geometry.coordinates.forEach((poly) => poly.forEach(addRing));
 
-    // label = average of the largest ring's vertices
     let lx = 0,
       ly = 0;
     bestRing.forEach(([x, y]) => {
@@ -136,10 +129,12 @@ function buildGeom(geo: FeatureCollection): { states: StateGeom[]; vbW: number; 
 export default function IndiaMap({
   filled,
   highlight,
+  hover,
   className,
 }: {
-  filled: Record<string, string[]>; // normalized state -> image urls
+  filled: Record<string, string[]>;
   highlight: Highlight;
+  hover?: string | null;
   className?: string;
 }) {
   const uid = useId().replace(/[:]/g, "");
@@ -171,6 +166,7 @@ export default function IndiaMap({
   }
 
   const hlKey = highlight ? normState(highlight.state) : null;
+  const hoverKey = hover ? normState(hover) : null;
 
   return (
     <div className={className}>
@@ -181,7 +177,6 @@ export default function IndiaMap({
         preserveAspectRatio="xMidYMid meet"
         style={{ display: "block" }}
       >
-        {/* clip paths, one per state */}
         <defs>
           {model.states.map((s, i) => (
             <clipPath id={`clip-${uid}-${i}`} key={`c${i}`}>
@@ -190,7 +185,7 @@ export default function IndiaMap({
           ))}
         </defs>
 
-        {/* base state shapes (these are the drop targets) */}
+        {/* base state shapes (drop targets) */}
         {model.states.map((s, i) => {
           const isFilled = (filled[s.key]?.length ?? 0) > 0;
           const isWrong = hlKey === s.key && highlight?.kind === "wrong";
@@ -211,7 +206,7 @@ export default function IndiaMap({
           );
         })}
 
-        {/* images clipped into each filled state, tiled if more than one */}
+        {/* images clipped into filled states, tiled */}
         {model.states.map((s, i) => {
           const imgs = filled[s.key] || [];
           if (imgs.length === 0) return null;
@@ -221,11 +216,7 @@ export default function IndiaMap({
           const cw = s.bbox.w / cols;
           const ch = s.bbox.h / rows;
           return (
-            <g
-              key={`g${i}`}
-              clipPath={`url(#clip-${uid}-${i})`}
-              style={{ pointerEvents: "none" }}
-            >
+            <g key={`g${i}`} clipPath={`url(#clip-${uid}-${i})`} style={{ pointerEvents: "none" }}>
               {imgs.map((url, k) => {
                 const col = k % cols;
                 const row = Math.floor(k / cols);
@@ -245,7 +236,23 @@ export default function IndiaMap({
           );
         })}
 
-        {/* green flash overlay when a state is freshly correct */}
+        {/* DROP-TARGET HOVER highlight (where the card will land) */}
+        {model.states.map((s, i) => {
+          if (hoverKey !== s.key) return null;
+          return (
+            <path
+              key={`hv${i}`}
+              d={s.d}
+              fill="rgba(255,255,255,0.65)"
+              fillRule="evenodd"
+              stroke="#F5911E"
+              strokeWidth={3}
+              style={{ pointerEvents: "none" }}
+            />
+          );
+        })}
+
+        {/* green flash on correct */}
         {model.states.map((s, i) => {
           const isCorrect = hlKey === s.key && highlight?.kind === "correct";
           if (!isCorrect) return null;
@@ -260,7 +267,7 @@ export default function IndiaMap({
           );
         })}
 
-        {/* state name labels */}
+        {/* labels */}
         {model.states.map((s, i) => {
           const fontSize = Math.max(8, Math.min(15, s.bbox.w / 7));
           return (
