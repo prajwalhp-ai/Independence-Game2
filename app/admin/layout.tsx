@@ -4,12 +4,15 @@ import Link from "next/link";
 import { getAdminEmail } from "@/lib/supabaseServer";
 import LogoutButton from "./LogoutButton";
 
+export const dynamic = "force-dynamic";
+
 export default async function AdminLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const path = headers().get("x-current-path") || "";
+  const headersList = headers();
+  const path = headersList.get("x-current-path") || "";
   const isLoginPage = path.startsWith("/admin/login");
 
   // Login page: render as-is, no guard, no redirect (prevents loops).
