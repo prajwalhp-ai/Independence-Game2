@@ -9,7 +9,6 @@ type Session = { teamId: string; token: string; teamName: string; empName: strin
 type City = { id: string; name: string; slug: string };
 
 const POINTS_PER_CORRECT = 10;
-const VISIBLE = 3; // how many cards are draggable at once
 
 function fmtTime(sec: number) {
   const m = Math.floor(sec / 60).toString().padStart(2, "0");
@@ -30,14 +29,14 @@ export default function GameBoard({
   const startKey = `idgame:${city.slug}:start`;
 
   const [questions, setQuestions] = useState<Question[]>([]);
-  const [queue, setQueue] = useState<number[]>([]);          // question orders still to place
-  const [correct, setCorrect] = useState<number[]>([]);      // orders placed correctly
+  const [queue, setQueue] = useState<number[]>([]);
+  const [correct, setCorrect] = useState<number[]>([]);
   const [tabShifts, setTabShifts] = useState(0);
   const [elapsed, setElapsed] = useState(0);
   const [highlight, setHighlight] = useState<{ state: string; kind: "wrong" | "correct" } | null>(null);
+  const [hoverState, setHoverState] = useState<string | null>(null);
   const [finished, setFinished] = useState(status === "stopped");
 
-  // drag state (the floating card that follows the pointer)
   const [drag, setDrag] = useState<{ order: number; x: number; y: number } | null>(null);
   const dragOffset = useRef({ dx: 0, dy: 0 });
 
@@ -46,7 +45,7 @@ export default function GameBoard({
   const correctRef = useRef<number[]>([]);
   const elapsedRef = useRef(0);
 
-  // ---- load questions + restore any prior progress ----
+  // load questions + restore progress
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -55,7 +54,6 @@ export default function GameBoard({
       if (!alive) return;
       setQuestions(qs);
 
-      // restore prior correct answers (survives refresh)
       let restored: number[] = [];
       try {
         const { data } = await supabase
@@ -73,15 +71,14 @@ export default function GameBoard({
       }
       setCorrect(restored);
       correctRef.current = restored;
-      const remaining = qs.map((q) => q.order).filter((o) => !restored.includes(o));
-      setQueue(remaining);
+      setQueue(qs.map((q) => q.order).filter((o) => !restored.includes(o)));
     })();
     return () => {
       alive = false;
     };
   }, [session.teamId, supabase]);
 
-  // ---- timer start (persisted so refresh doesn't reset it) ----
+  // timer start (persisted)
   useEffect(() => {
     let start = 0;
     try {
@@ -101,7 +98,6 @@ export default function GameBoard({
     startMsRef.current = start;
   }, [startKey]);
 
-  // ---- tick + periodic save ----
   const saveProgress = useCallback(async () => {
     await supabase.rpc("update_team_progress", {
       p_team_id: session.teamId,
@@ -121,16 +117,14 @@ export default function GameBoard({
       elapsedRef.current = e;
       setElapsed(e);
     }, 1000);
-    const saver = setInterval(() => {
-      saveProgress();
-    }, 4000);
+    const saver = setInterval(() => saveProgress(), 4000);
     return () => {
       clearInterval(tick);
       clearInterval(saver);
     };
   }, [finished, saveProgress]);
 
-  // ---- tab-shift detection ----
+  // tab-shift detection
   useEffect(() => {
     if (finished) return;
     const bump = () => {
@@ -149,21 +143,22 @@ export default function GameBoard({
     };
   }, [finished, saveProgress]);
 
-  // ---- react to admin STOP ----
-  useEffect(() => {
-    if (status === "stopped" && !finished) {
-      elapsedRef.current = Math.floor((Date.now() - startMsRef.current) / 1000);
-      supabase
-        .rpc("submit_team", {
-          p_team_id: session.teamId,
-          p_token: session.token,
-          p_elapsed: elapsedRef.current,
-        })
-        .then(() => setFinished(true));
-    }
-  }, [status, finished, session.teamId, session.token, supabase]);
+  const doSubmit = useCallback(() => {
+    elapsedRef.current = Math.floor((Date.now() - startMsRef.current) / 1000);
+    supabase
+      .rpc("submit_team", {
+        p_team_id: session.teamId,
+        p_token: session.token,
+        p_elapsed: elapsedRef.current,
+      })
+      .then(() => setFinished(true));
+  }, [session.teamId, session.token, supabase]);
 
-  // ---- derived: filled map (normalized state -> image urls) ----
+  // react to admin STOP
+  useEffect(() => {
+    if (status === "stopped" && !finished) doSubmit();
+  }, [status, finished, doSubmit]);
+
   const byOrder = useMemo(() => {
     const m: Record<number, Question> = {};
     questions.forEach((q) => (m[q.order] = q));
@@ -175,15 +170,20 @@ export default function GameBoard({
     correct.forEach((o) => {
       const q = byOrder[o];
       if (!q) return;
-      const key = normState(q.answer);
-      (out[key] ||= []).push(q.image);
+      (out[normState(q.answer)] ||= []).push(q.image);
     });
     return out;
   }, [correct, byOrder]);
 
-  const visibleOrders = queue.slice(0, VISIBLE);
+  const frontOrder = queue[0];
+  const frontQ = frontOrder != null ? byOrder[frontOrder] : null;
 
-  // ---- drag handlers ----
+  function stateUnderPointer(x: number, y: number): string | null {
+    const el = document.elementFromPoint(x, y) as HTMLElement | null;
+    const stateEl = el?.closest("[data-state]") as HTMLElement | null;
+    return stateEl?.getAttribute("data-state") || null;
+  }
+
   function onPointerDown(e: React.PointerEvent, order: number) {
     if (finished) return;
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
@@ -195,25 +195,22 @@ export default function GameBoard({
   function onPointerMove(e: React.PointerEvent) {
     if (!drag) return;
     setDrag({ ...drag, x: e.clientX, y: e.clientY });
+    setHoverState(stateUnderPointer(e.clientX, e.clientY));
   }
 
   function onPointerUp(e: React.PointerEvent) {
     if (!drag) return;
     const droppedOrder = drag.order;
     setDrag(null);
+    setHoverState(null);
 
     const q = byOrder[droppedOrder];
     if (!q) return;
 
-    // find which state is under the pointer
-    const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null;
-    const stateEl = el?.closest("[data-state]") as HTMLElement | null;
-    const droppedState = stateEl?.getAttribute("data-state") || "";
-
+    const droppedState = stateUnderPointer(e.clientX, e.clientY);
     const isCorrect = droppedState && normState(droppedState) === normState(q.answer);
 
     if (isCorrect) {
-      // add to filled + flash green
       const next = [...correctRef.current, droppedOrder];
       correctRef.current = next;
       setCorrect(next);
@@ -221,35 +218,28 @@ export default function GameBoard({
       setHighlight({ state: q.answer, kind: "correct" });
       setTimeout(() => setHighlight(null), 700);
       saveProgress();
-
-      if (next.length === questions.length) {
-        // all placed → auto submit
-        elapsedRef.current = Math.floor((Date.now() - startMsRef.current) / 1000);
-        supabase
-          .rpc("submit_team", {
-            p_team_id: session.teamId,
-            p_token: session.token,
-            p_elapsed: elapsedRef.current,
-          })
-          .then(() => setFinished(true));
-      }
+      if (next.length === questions.length) doSubmit();
     } else if (droppedState) {
-      // wrong state → flash it red; card returns to its place (no queue change)
       setHighlight({ state: droppedState, kind: "wrong" });
       setTimeout(() => setHighlight(null), 1200);
     }
-    // dropped outside the map → nothing happens, card just returns
   }
 
-  function skip(order: number) {
-    if (finished) return;
-    setQueue((qq) => {
-      const rest = qq.filter((o) => o !== order);
-      return [...rest, order]; // send to the back
-    });
+  function skip() {
+    if (finished || frontOrder == null) return;
+    setQueue((qq) => (qq.length <= 1 ? qq : [...qq.slice(1), qq[0]]));
   }
 
-  // ---------- FINISHED / SUMMARY SCREEN ----------
+  function handleSubmitClick() {
+    const left = queue.length;
+    const msg =
+      left > 0
+        ? `Submit now? You still have ${left} card(s) left. You can't change answers after submitting.`
+        : "Submit your answers?";
+    if (confirm(msg)) doSubmit();
+  }
+
+  // ---------- SUMMARY ----------
   if (finished) {
     return (
       <div
@@ -263,9 +253,7 @@ export default function GameBoard({
           <p className="text-slate-500 mt-1">Team {session.teamName}</p>
           <div className="grid grid-cols-3 gap-3 mt-6">
             <div className="bg-slate-50 rounded-xl p-3">
-              <div className="text-2xl font-bold text-brandgreen">
-                {correct.length * POINTS_PER_CORRECT}
-              </div>
+              <div className="text-2xl font-bold text-brandgreen">{correct.length * POINTS_PER_CORRECT}</div>
               <div className="text-xs text-slate-500">Points</div>
             </div>
             <div className="bg-slate-50 rounded-xl p-3">
@@ -283,78 +271,94 @@ export default function GameBoard({
     );
   }
 
-  // ---------- PLAY SCREEN ----------
+  // ---------- PLAY ----------
   return (
     <div
-      className="min-h-screen flex flex-col no-select"
+      className="h-[100dvh] flex flex-col no-select overflow-hidden bg-slate-100"
       style={{ touchAction: "none" }}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
     >
       {/* top bar */}
-      <div className="bg-white border-b border-slate-200 px-4 sm:px-6 h-14 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-3">
-          <img src="/logo.webp" alt="Orange Health" className="h-6 object-contain" />
-          <span className="hidden sm:inline text-sm font-medium text-slate-700">
+      <div className="bg-white border-b border-slate-200 px-3 sm:px-5 h-14 flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-3 min-w-0">
+          <img src="/logo.webp" alt="Orange Health" className="h-6 object-contain shrink-0" />
+          <span className="hidden sm:inline text-sm font-medium text-slate-700 truncate">
             {session.teamName}
           </span>
         </div>
-        <div className="flex items-center gap-4 text-sm">
+        <div className="flex items-center gap-3 sm:gap-4">
           <Stat label="Time" value={fmtTime(elapsed)} />
           <Stat label="Points" value={String(correct.length * POINTS_PER_CORRECT)} accent />
-          <Stat label="Left" value={String(queue.length)} />
-          <Stat label="Tab shifts" value={String(tabShifts)} warn={tabShifts > 0} />
+          <Stat label="Correct" value={`${correct.length}/${questions.length}`} />
+          <Stat label="Tabs" value={String(tabShifts)} warn={tabShifts > 0} />
+          <button
+            onClick={handleSubmitClick}
+            className="rounded-lg bg-brandgreen px-4 py-2 text-white text-sm font-semibold hover:opacity-90 transition"
+          >
+            Submit
+          </button>
         </div>
       </div>
 
-      {/* main */}
-      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
-        {/* cards panel */}
-        <div className="lg:w-[340px] shrink-0 bg-slate-50 border-r border-slate-200 p-4 overflow-y-auto">
-          <p className="text-xs text-slate-500 mb-3">
-            Drag each card onto the correct state. Wrong drops flash red; correct drops fill the state.
-          </p>
-          <div className="space-y-4">
-            {visibleOrders.map((order) => {
-              const q = byOrder[order];
-              if (!q) return null;
-              const isDragging = drag?.order === order;
-              return (
-                <div
-                  key={order}
-                  className={`rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden transition ${
-                    isDragging ? "opacity-30" : ""
-                  }`}
-                >
-                  <img
-                    src={q.image}
-                    alt=""
-                    draggable={false}
-                    onPointerDown={(e) => onPointerDown(e, order)}
-                    className="w-full h-36 object-cover cursor-grab active:cursor-grabbing"
-                    style={{ touchAction: "none" }}
-                  />
-                  <div className="p-3">
-                    <p className="text-xs text-slate-700 leading-snug">{q.question}</p>
-                    <button
-                      onClick={() => skip(order)}
-                      className="mt-2 text-xs text-slate-400 hover:text-slate-600"
-                    >
-                      Skip ↻
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-            {queue.length === 0 && (
-              <p className="text-sm text-green-600 font-medium">All placed! Submitting…</p>
-            )}
-          </div>
+      {/* main: map left, deck right */}
+      <div className="flex-1 min-h-0 flex flex-col lg:flex-row">
+        {/* MAP (left) */}
+        <div className="flex-1 min-h-0 order-2 lg:order-1 p-2">
+          <IndiaMap filled={filled} highlight={highlight} hover={hoverState} className="w-full h-full" />
         </div>
 
-        {/* map */}
-        <div className="flex-1 bg-gradient-to-b from-white to-slate-100 p-2 overflow-hidden">
-          <IndiaMap filled={filled} highlight={highlight} className="w-full h-full" />
+        {/* DECK (right) */}
+        <div className="order-1 lg:order-2 lg:w-[360px] shrink-0 border-t lg:border-t-0 lg:border-l border-slate-200 bg-slate-50 p-4 flex flex-col min-h-0">
+          <p className="text-xs text-slate-500 mb-3 shrink-0">
+            Drag the picture onto the correct state. The state lights up where it will land.
+          </p>
+
+          <div className="relative flex-1 min-h-0">
+            {/* stacked deck shadows */}
+            {queue.length > 2 && (
+              <div className="absolute inset-0 translate-x-2 translate-y-2 rounded-2xl bg-white/70 border border-slate-200" />
+            )}
+            {queue.length > 1 && (
+              <div className="absolute inset-0 translate-x-1 translate-y-1 rounded-2xl bg-white/85 border border-slate-200" />
+            )}
+
+            {/* front card */}
+            {frontQ ? (
+              <div className="relative h-full rounded-2xl bg-white border border-slate-200 shadow-lg flex flex-col overflow-hidden">
+                <div className="p-4 shrink-0">
+                  <p className="text-base sm:text-lg font-bold text-slate-800 leading-snug">
+                    {frontQ.question}
+                  </p>
+                </div>
+                <div className="flex-1 min-h-0 px-4">
+                  <img
+                    src={frontQ.image}
+                    alt=""
+                    draggable={false}
+                    onPointerDown={(e) => onPointerDown(e, frontQ.order)}
+                    className={`w-full h-full object-cover rounded-lg cursor-grab active:cursor-grabbing ${
+                      drag?.order === frontQ.order ? "opacity-30" : ""
+                    }`}
+                    style={{ touchAction: "none" }}
+                  />
+                </div>
+                <div className="p-4 shrink-0 flex items-center justify-between">
+                  <button
+                    onClick={skip}
+                    className="rounded-lg border border-slate-300 px-4 py-1.5 text-sm text-slate-600 hover:bg-slate-100 transition"
+                  >
+                    Skip ↻
+                  </button>
+                  <span className="text-xs text-slate-400">{queue.length} left</span>
+                </div>
+              </div>
+            ) : (
+              <div className="h-full rounded-2xl bg-white border border-slate-200 shadow-lg flex items-center justify-center">
+                <p className="text-green-600 font-medium">All placed! Submitting…</p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -363,12 +367,12 @@ export default function GameBoard({
         <img
           src={byOrder[drag.order].image}
           alt=""
-          className="fixed z-50 pointer-events-none rounded-lg shadow-2xl"
+          className="fixed z-50 pointer-events-none rounded-lg shadow-2xl ring-2 ring-brandorange"
           style={{
             left: drag.x - dragOffset.current.dx,
             top: drag.y - dragOffset.current.dy,
-            width: 180,
-            height: 120,
+            width: 200,
+            height: 130,
             objectFit: "cover",
           }}
         />
@@ -390,11 +394,7 @@ function Stat({
 }) {
   return (
     <div className="text-center leading-tight">
-      <div
-        className={`font-bold ${
-          accent ? "text-brandgreen" : warn ? "text-red-500" : "text-slate-800"
-        }`}
-      >
+      <div className={`text-sm font-bold ${accent ? "text-brandgreen" : warn ? "text-red-500" : "text-slate-800"}`}>
         {value}
       </div>
       <div className="text-[10px] uppercase text-slate-400">{label}</div>
