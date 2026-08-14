@@ -1,11 +1,10 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Papa from "papaparse";
-import { addEmployees, deleteEmployee, clearCityEmployees } from "./actions";
+import { addEmployees, deleteEmployee, clearAllEmployees } from "./actions";
 
-type City = { id: string; name: string; slug: string };
 type Employee = {
   id: string;
   empcode: string;
@@ -13,7 +12,6 @@ type Employee = {
   email: string | null;
   department: string | null;
   location: string | null;
-  city_id: string | null;
 };
 
 type ParsedRow = {
@@ -39,28 +37,12 @@ function normalizeRow(obj: Record<string, string>): ParsedRow | null {
   };
 }
 
-export default function EmployeeManager({
-  cities,
-  employees,
-}: {
-  cities: City[];
-  employees: Employee[];
-}) {
+export default function EmployeeManager({ employees }: { employees: Employee[] }) {
   const router = useRouter();
-  const [cityId, setCityId] = useState<string>(cities[0]?.id ?? "");
   const [pasteText, setPasteText] = useState("");
+  const [search, setSearch] = useState("");
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [isPending, startTransition] = useTransition();
-
-  const cityEmployees = useMemo(
-    () => employees.filter((e) => e.city_id === cityId),
-    [employees, cityId]
-  );
-
-  const selectedCityName = useMemo(
-    () => cities.find((c) => c.id === cityId)?.name ?? "",
-    [cities, cityId]
-  );
 
   function parsePaste(text: string): ParsedRow[] {
     const parsed = Papa.parse<Record<string, string>>(text.trim(), {
@@ -77,16 +59,12 @@ export default function EmployeeManager({
   }
 
   function submitRows(rows: ParsedRow[]) {
-    if (!cityId) {
-      setMessage({ ok: false, text: "Select a city first." });
-      return;
-    }
     if (!rows.length) {
       setMessage({ ok: false, text: "No valid rows found. Need at least empcode and name." });
       return;
     }
     startTransition(async () => {
-      const res = await addEmployees(cityId, rows);
+      const res = await addEmployees(rows);
       if (res.ok) {
         setMessage({ ok: true, text: `Saved ${res.added} employee(s).` });
         setPasteText("");
@@ -119,8 +97,8 @@ export default function EmployeeManager({
   function downloadTemplate() {
     const header = ["empcode", "name", "email", "department", "location"];
     const sample = [
-      ["E101", "Asha Rao", "asha@orangehealth.in", "Operations", selectedCityName || "Bengaluru"],
-      ["E102", "Ravi Kumar", "ravi@orangehealth.in", "Sales", selectedCityName || "Bengaluru"],
+      ["E101", "Asha Rao", "asha@orangehealth.in", "Operations", "Bengaluru"],
+      ["E102", "Ravi Kumar", "ravi@orangehealth.in", "Sales", "Hyderabad"],
     ];
     const csv = [header, ...sample]
       .map((row) =>
@@ -149,51 +127,33 @@ export default function EmployeeManager({
   }
 
   function clearAll() {
-    if (!cityId) return;
-    if (!confirm("Remove ALL employees for this city?")) return;
+    if (!confirm("Remove ALL employees? This cannot be undone.")) return;
     startTransition(async () => {
-      await clearCityEmployees(cityId);
+      await clearAllEmployees();
       router.refresh();
     });
   }
 
-  if (!cities.length) {
-    return (
-      <p className="text-sm text-slate-500">
-        Create a city first on the Cities page, then add employees here.
-      </p>
-    );
-  }
+  const q = search.trim().toLowerCase();
+  const filtered = q
+    ? employees.filter(
+        (e) =>
+          e.empcode.toLowerCase().includes(q) ||
+          e.name.toLowerCase().includes(q) ||
+          (e.location || "").toLowerCase().includes(q)
+      )
+    : employees;
 
   return (
     <div className="space-y-6">
-      {/* city selector */}
-      <div className="flex items-center gap-3">
-        <label className="text-sm text-slate-600">City:</label>
-        <select
-          value={cityId}
-          onChange={(e) => setCityId(e.target.value)}
-          className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brandorange"
-        >
-          {cities.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
-        <span className="text-xs text-slate-400">
-          {cityEmployees.length} employee(s) in this city
-        </span>
-      </div>
-
       {/* upload / paste */}
       <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div>
-            <h2 className="font-semibold text-slate-800">Add employees</h2>
+            <h2 className="font-semibold text-slate-800">Bulk add employees</h2>
             <p className="text-xs text-slate-500 mt-1">
-              Columns: <code>empcode, name, email, department, location</code> — empcode and name are
-              required. Re-uploading an empcode updates that person.
+              Upload the full list once. Columns: <code>empcode, name, email, department, location</code>{" "}
+              — empcode and name are required. Any employee can join any city link.
             </p>
           </div>
           <button
@@ -221,7 +181,7 @@ export default function EmployeeManager({
             value={pasteText}
             onChange={(e) => setPasteText(e.target.value)}
             rows={6}
-            placeholder={"empcode,name,email,department,location\nE101,Asha,asha@x.com,Ops,Bengaluru\nE102,Ravi,ravi@x.com,Sales,Bengaluru"}
+            placeholder={"empcode,name,email,department,location\nE101,Asha,asha@x.com,Ops,Bengaluru\nE102,Ravi,ravi@x.com,Sales,Hyderabad"}
             className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brandorange"
           />
           <button
@@ -242,20 +202,32 @@ export default function EmployeeManager({
 
       {/* current list */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200">
-          <h3 className="font-semibold text-slate-800 text-sm">Employees in this city</h3>
-          {cityEmployees.length > 0 && (
-            <button onClick={clearAll} className="text-xs text-red-500 hover:text-red-700">
-              Clear all
-            </button>
-          )}
+        <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-slate-200 flex-wrap">
+          <h3 className="font-semibold text-slate-800 text-sm">
+            All employees ({employees.length})
+          </h3>
+          <div className="flex items-center gap-3">
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search…"
+              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brandorange"
+            />
+            {employees.length > 0 && (
+              <button onClick={clearAll} className="text-xs text-red-500 hover:text-red-700">
+                Clear all
+              </button>
+            )}
+          </div>
         </div>
-        {cityEmployees.length === 0 ? (
-          <p className="px-5 py-6 text-sm text-slate-500">No employees added for this city yet.</p>
+        {filtered.length === 0 ? (
+          <p className="px-5 py-6 text-sm text-slate-500">
+            {employees.length === 0 ? "No employees added yet." : "No matches."}
+          </p>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto max-h-[480px] overflow-y-auto">
             <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-slate-500 text-xs uppercase">
+              <thead className="bg-slate-50 text-slate-500 text-xs uppercase sticky top-0">
                 <tr>
                   <th className="text-left px-5 py-2">Emp code</th>
                   <th className="text-left px-5 py-2">Name</th>
@@ -266,7 +238,7 @@ export default function EmployeeManager({
                 </tr>
               </thead>
               <tbody>
-                {cityEmployees.map((e) => (
+                {filtered.map((e) => (
                   <tr key={e.id} className="border-t border-slate-100">
                     <td className="px-5 py-2 font-medium text-slate-800">{e.empcode}</td>
                     <td className="px-5 py-2">{e.name}</td>
