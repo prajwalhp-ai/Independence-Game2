@@ -26,14 +26,42 @@ export default function PlayEntry({ city }: { city: City }) {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(storageKey);
-      if (raw) setSession(JSON.parse(raw));
-    } catch {
-      /* ignore */
-    }
-    setReady(true);
-  }, [storageKey]);
+    let alive = true;
+    (async () => {
+      let saved: Session | null = null;
+      try {
+        const raw = localStorage.getItem(storageKey);
+        if (raw) saved = JSON.parse(raw);
+      } catch {
+        saved = null;
+      }
+
+      if (saved?.teamId) {
+        // verify the team still exists for THIS city; otherwise it's stale
+        const { data } = await supabase
+          .from("teams")
+          .select("id")
+          .eq("id", saved.teamId)
+          .eq("city_id", city.id)
+          .maybeSingle();
+        if (data) {
+          if (alive) setSession(saved);
+        } else {
+          // stale (city recreated / team deleted) → clear it
+          try {
+            localStorage.removeItem(storageKey);
+            localStorage.removeItem(`${storageKey}:start`);
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+      if (alive) setReady(true);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [storageKey, city.id, supabase]);
 
   useEffect(() => {
     const channel = supabase
